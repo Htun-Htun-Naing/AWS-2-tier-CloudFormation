@@ -16,6 +16,7 @@ Parameters:
     Description: The latest Amazon Linux 2 AMI from the Parameter Store
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+# https://aws.amazon.com/blogs/mt/integrating-aws-cloudformation-with-aws-systems-manager-parameter-store/
   OperatorEmail:
     Description: The email address to notify when there are any scaling activities
     Type: String
@@ -26,12 +27,7 @@ Parameters:
     MaxLength: 18
     Default: 0.0.0.0/0
     ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
-  # Subnets:
-  #   Type: 'List<AWS::EC2::Subnet::Id>'
-  #   Description: At least two public subnets in different Availability Zones in the selected VPC
-  # VPC:
-  #   Type: 'AWS::EC2::VPC::Id'
-  #   Description: A virtual private cloud (VPC) that enables resources in public subnets to connect to the internet
+  
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -66,6 +62,28 @@ Resources:
       Tags:
       - Key: stack
         Value: production
+
+  DatabaseSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: False
+      AvailabilityZone: "ap-southeast-1a"
+      Tags:
+        - Key: Name
+          Value: DatabaseSubnet1
+
+  DatabaseSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: False
+      AvailabilityZone: "ap-southeast-1b"
+      Tags:
+        - Key: Name
+          Value: DatabaseSubnet2
 
   myInternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -141,6 +159,10 @@ Resources:
         FromPort: 22
         ToPort: 22
         CidrIp: !Ref SSHLocation
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Ref SSHLocation
   EC2TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -212,3 +234,45 @@ Resources:
       TargetGroupARNs:
         - !Ref EC2TargetGroup
       VPCZoneIdentifier: [!Ref mySubnet1, !Ref mySubnet2]
+
+  RDSSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security Group allowing RDS instances to have internet traffic
+      VpcId: !Ref myVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+          FromPort: 3306
+          ToPort: 3306
+      Tags:
+        - Key: Name
+          Value: RDSSecurityGroup
+
+  myDBSubnetGroup: 
+    Properties: 
+      DBSubnetGroupDescription: description
+      SubnetIds: 
+        - !Ref DatabaseSubnet1
+        - !Ref DatabaseSubnet2
+      Tags: 
+        - 
+          Key: String
+          Value: String
+    Type: "AWS::RDS::DBSubnetGroup"
+
+  MyDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: database-3
+      DBName: mydb
+      DBInstanceClass: db.t2.micro
+      DBSubnetGroupName: !Ref myDBSubnetGroup
+      AllocatedStorage: 20
+      Engine: MySQL
+      EngineVersion: "8.0.32"
+      MasterUsername: "admin"
+      MasterUserPassword: "password"
+      VPCSecurityGroups: [ !Ref RDSSecurityGroup ]
+      BackupRetentionPeriod: 2
+      
